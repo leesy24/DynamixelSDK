@@ -19,6 +19,8 @@ TARGET1     = $(TARGET).$(MAJ_VERSION)
 TARGET2     = $(TARGET).$(MAJ_VERSION).$(MIN_VERSION)
 TARGET3     = $(TARGET).$(MAJ_VERSION).$(MIN_VERSION).$(REV_VERSION)
 
+TARGET_STATIC = libdxl_sbc_c.a
+
 CHK_DIR_EXISTS = test -d
 PRINT       = echo
 STRIP       = strip
@@ -64,14 +66,19 @@ OBJECTS=$(addsuffix .o,$(addprefix $(DIR_OBJS)/,$(basename $(notdir $(SOURCES)))
 #---------------------------------------------------------------------
 # COMPILING RULES
 #---------------------------------------------------------------------
+all: $(TARGET) $(TARGET_STATIC)
+
 $(TARGET): makedirs $(OBJECTS)
 	$(LD) $(LDFLAGS) -o ./$(TARGET) $(OBJECTS) $(LIBRARIES)
+
+$(TARGET_STATIC): makedirs $(OBJECTS)
+	$(AR) $(ARFLAGS) ./$(TARGET_STATIC) $(OBJECTS)
 
 makedirs:
 	mkdir -p $(DIR_OBJS)/
 
 clean:
-	rm -f $(OBJECTS) ./$(TARGET)
+	rm -f $(OBJECTS) ./$(TARGET) ./$(TARGET_STATIC)
 
 install: $(TARGET)
     # copy the binaries into the lib directory

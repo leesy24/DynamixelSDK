@@ -35,14 +35,15 @@ CX          = g++
 CCFLAGS     = -O2 -O3 -DLINUX -D_GNU_SOURCE -Wall $(INCLUDES) -g
 CXFLAGS     = -O2 -O3 -DLINUX -D_GNU_SOURCE -Wall $(INCLUDES) -g
 LNKCC       = $(CX)
-LNKFLAGS    = $(CXFLAGS) #-Wl,-rpath,$(DIR_THOR)/lib
+#LNKFLAGS    = $(CXFLAGS) #-Wl,-rpath,$(DIR_THOR)/lib
+LNKFLAGS    = --static -L../../../../build/linux_sbc
 
 #---------------------------------------------------------------------
 # Core components (all of these are likely going to be needed)
 #---------------------------------------------------------------------
 INCLUDES   += -I$(DIR_DXL)/include/dynamixel_sdk
 LIBRARIES  += -ldxl_sbc_c
-LIBRARIES  += -lrt
+#LIBRARIES  += -lrt
 
 #---------------------------------------------------------------------
 # Files
