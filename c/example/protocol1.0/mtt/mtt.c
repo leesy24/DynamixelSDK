@@ -45,6 +45,7 @@
 #include <stdarg.h>
 #include <float.h>
 #include <math.h>
+#include <sys/time.h>
 #include "dynamixel_sdk.h"                                  // Uses Dynamixel SDK library
 
 #define VERSION "1.00"
@@ -79,10 +80,12 @@ uint8_t MOTOR_ID = 1;
 uint16_t TORQUE_LIMIT = 200; //100;
 //GOAL_ANGLE_DEGREE
 float GOAL_ANGLE_DEGREE = 0.0;
+//#define GOAL_TIME_OUT 1
+int GOAL_TIME_OUT = 1; // in seconds
 
 //#define PORT_NAME                      "/dev/ttyUSB0"      // Check which port is being used on your controller
-//char *PORT_NAME = "/dev/ttyUSB0";
-char *PORT_NAME = "/dev/ttyS4";
+char *PORT_NAME = "/dev/ttyUSB0";
+//char *PORT_NAME = "/dev/ttyS4";
 int PORT_SPEC = 485; // 232, 422, 485
 //#define BAUD_RATE                        57600
 int BAUD_RATE = 57600;
@@ -239,12 +242,13 @@ usage(int exitcode, const char *format, ...)
 
   fprintf(f, "%s version %s\n", program_name, VERSION);
 
-  fprintf(f, "Usage: %s [GOAL_ANGLE_DEGREE] [-i:l:dexn:s:b:h]\n", program_name);
+  fprintf(f, "Usage: %s [GOAL_ANGLE_DEGREE] [-i:l:t:dexn:s:b:h]\n", program_name);
   fputs("Moter test tool\n", f);
   fputs((
 "  GOAL_ANGLE_DEGREE : move position to GOAL_ANGLE_DEGREE with enable motor torque, -50.0~50.0\n"
 "  -i MOTOR_ID       : use motor ID to MOTOR_ID, 1~255, default=1\n"
 "  -l TORQUE_LIMIT   : set motor torque limit to TORQUE_LIMIT, 0~1023, default=200\n"
+"  -t GOAL_TIME_OUT  : time out value in seconds to move goal position, 1~100, default=1\n"
 "  -d                : disable moter torque\n"
 "  -e                : enable moter torque\n"
 "  -x                : disable display status\n"
@@ -296,8 +300,9 @@ void set_goal_position(int port_num)
 {
   int dxl_comm_result = COMM_TX_FAIL;             // Communication result
   uint16_t dxl_goal_position = angle_degree_2_position(GOAL_ANGLE_DEGREE);  // Goal position
-  uint8_t dxl_error = 0;                          // Dynamixel error
-  uint16_t dxl_present_position = 0;              // Present position
+  uint8_t dxl_error;                          // Dynamixel error
+  uint16_t dxl_present_position;              // Present position
+  uint16_t dxl_present_position_prev;         // Present position
 
   //printf("[ID:%03d] dxl_goal_position:%d\n", MOTOR_ID, dxl_goal_position);
 
@@ -346,9 +351,11 @@ void set_goal_position(int port_num)
     printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
   }
 
+  struct timeval time_start, time_end;
+
+  dxl_present_position_prev = 0xffff;
   do
   {
-    usleep(100*1000); // sleep 100ms
     // Read present position
     dxl_present_position = read2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_PRESENT_POSITION);
     if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
@@ -359,10 +366,32 @@ void set_goal_position(int port_num)
     {
       printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
     }
-
+    //printf("ID:%d GP:%d:%02.1f PP:%d:%02.1f\n", MOTOR_ID, dxl_goal_position, position_2_angle_degree(dxl_goal_position), dxl_present_position, position_2_angle_degree(dxl_present_position));
+    if (dxl_present_position_prev == 0xffff)
+    {
+      // start timer
+      gettimeofday(&time_start, NULL);
+      dxl_present_position_prev = dxl_present_position;
+    }
+    else
+    {
+      if (abs(dxl_present_position - dxl_present_position_prev) > 1)
+      {
+        gettimeofday(&time_start, NULL);
+      }
+      dxl_present_position_prev = dxl_present_position;
+    }
+    // end timer
+    gettimeofday(&time_end, NULL);
+    if (((time_end.tv_sec - time_start.tv_sec) * 1000 + (time_end.tv_usec - time_start.tv_usec) / 1000) >= GOAL_TIME_OUT * 1000)
+    {
+      break;
+    }
+    usleep(100*1000); // sleep 100ms
   } while ((abs(dxl_goal_position - dxl_present_position) > DXL_MOVING_STATUS_THRESHOLD));
 
-  //printf("[ID:%03d] GoalPos:%02.1f  PresPos:%02.1f\n", MOTOR_ID, position_2_angle_degree(dxl_goal_position), position_2_angle_degree(dxl_present_position));
+  //printf("ID:%d TI:%ldms\n", MOTOR_ID, ((time_end.tv_sec - time_start.tv_sec) * 1000 + (time_end.tv_usec - time_start.tv_usec) / 1000));
+  //printf("ID:%d GP:%d:%02.1f PP:%d:%02.1f\n", MOTOR_ID, dxl_goal_position, position_2_angle_degree(dxl_goal_position), dxl_present_position, position_2_angle_degree(dxl_present_position));
 }
 
 void set_enable_motor_torque(int port_num)
@@ -499,7 +528,7 @@ int main(int argc, char **argv)
 
   if (skip_getopt == false)
   {
-    while ((c = getopt (argc, argv, "i:l:dexn:s:b:h")) != -1)
+    while ((c = getopt (argc, argv, "i:l:t:dexn:s:b:h")) != -1)
     {
       switch (c)
       {
@@ -528,6 +557,19 @@ int main(int argc, char **argv)
             break;
           }
           TORQUE_LIMIT = (uint16_t)ival;
+          break;
+        case 't':
+          if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
+          {
+            usage(-1, "incorrct argument of option -%c.\n", optopt);
+            break;
+          }
+          if (ival < 1 || ival > 100)
+          {
+            usage(-1, "GOAL_TIME_OUT must be 1~100.\n");
+            break;
+          }
+          GOAL_TIME_OUT = ival;
           break;
         case 'd':
           disable_motor_torque = true;
