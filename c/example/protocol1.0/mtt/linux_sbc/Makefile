@@ -23,7 +23,7 @@
 #---------------------------------------------------------------------
 
 # *** ENTER THE TARGET NAME HERE ***
-TARGET      = read_write
+TARGET      = mtt
 
 # important directories used by assorted rules and other variables
 DIR_DXL    = ../../../..
@@ -48,7 +48,7 @@ LIBRARIES  += -ldxl_sbc_c
 #---------------------------------------------------------------------
 # Files
 #---------------------------------------------------------------------
-SOURCES = read_write.c \
+SOURCES = mtt.c \
     # *** OTHER SOURCES GO HERE ***
 
 OBJECTS  = $(addsuffix .o,$(addprefix $(DIR_OBJS)/,$(basename $(notdir $(SOURCES)))))
