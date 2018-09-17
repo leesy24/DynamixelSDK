@@ -84,8 +84,8 @@ float GOAL_ANGLE_DEGREE = 0.0;
 int GOAL_TIME_OUT = 1; // in seconds
 
 //#define PORT_NAME                      "/dev/ttyUSB0"      // Check which port is being used on your controller
-char *PORT_NAME = "/dev/ttyUSB0";
-//char *PORT_NAME = "/dev/ttyS4";
+//char *PORT_NAME = "/dev/ttyUSB0";
+char *PORT_NAME = "/dev/ttyS4";
 int PORT_SPEC = 485; // 232, 422, 485
 //#define BAUD_RATE                        57600
 int BAUD_RATE = 57600;
