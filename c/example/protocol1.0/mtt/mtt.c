@@ -48,6 +48,9 @@
 #include <sys/time.h>
 #include "dynamixel_sdk.h"                                  // Uses Dynamixel SDK library
 
+#define STR_HELPER(x) #x
+#define STR(x) STR_HELPER(x)
+
 #define VERSION "1.00"
 
 const char *program_name;   /* the name by which we were called */
@@ -74,26 +77,34 @@ const char *program_name;   /* the name by which we were called */
 
 #define ESC_ASCII_VALUE                 0x1b
 
-//#define MOTOR_ID                          1                   // Dynamixel ID: 1
+#define MOTOR_ID_CONST                  1                   // Dynamixel ID: 1
 uint8_t MOTOR_ID = 1;
-//#define TORQUE_LIMIT                    100                 // Value of torque limit
-uint16_t TORQUE_LIMIT = 200; //100;
+//#define TORQUE_LIMIT_CONST              100                 // Value of torque limit
+#define TORQUE_LIMIT_CONST              200                 // Value of torque limit
+uint16_t TORQUE_LIMIT = TORQUE_LIMIT_CONST;
 //GOAL_ANGLE_DEGREE
 float GOAL_ANGLE_DEGREE = 0.0;
-//#define GOAL_TIME_OUT 1
-int GOAL_TIME_OUT = 1; // in seconds
 
-//#define PORT_NAME                      "/dev/ttyUSB0"      // Check which port is being used on your controller
-//char *PORT_NAME = "/dev/ttyUSB0";
-char *PORT_NAME = "/dev/ttyS4";
-int PORT_SPEC = 485; // 232, 422, 485
-//#define BAUD_RATE                        57600
-int BAUD_RATE = 57600;
+#define GOAL_TIME_OUT_CONST             2
+int GOAL_TIME_OUT = GOAL_TIME_OUT_CONST; // in seconds
+#define SLIP_TIME_OUT_CONST             1
+int SLIP_TIME_OUT = SLIP_TIME_OUT_CONST; // in seconds
 
-int disable_motor_torque = false;
-int enable_motor_torque = false;
-int disable_display_status = false;
-int enable_goal_position = false;
+//#define PORT_NAME_CONST_STR                    "/dev/ttyUSB0"      // Check which port is being used on your controller
+#define PORT_NAME_CONST_STR             "/dev/ttyS4"      // Check which port is being used on your controller
+char *PORT_NAME = PORT_NAME_CONST_STR;
+//#define PORT_SPEC_CONST                 232
+//#define PORT_SPEC_CONST                 422
+#define PORT_SPEC_CONST                 485
+int PORT_SPEC = PORT_SPEC_CONST;
+#define BAUD_RATE_CONST                 57600
+int BAUD_RATE = BAUD_RATE_CONST;
+
+int enabled_torque_limit = false;
+int enabled_goal_position = false;
+int disabled_motor_torque = false;
+int enabled_motor_torque = false;
+int disabled_display_status = false;
 
 typedef enum {
     STR2INT_SUCCESS,
@@ -154,6 +165,11 @@ str2float_errno str2float(float *out, char *s)
         return STR2FLOAT_INCONVERTIBLE;
     *out = l;
     return STR2FLOAT_SUCCESS;
+}
+
+int get_timeofday_diff(struct timeval *slip_time_start, struct timeval *slip_time_end)
+{
+  return ((slip_time_end->tv_sec - slip_time_start->tv_sec) * 1000 + (slip_time_end->tv_usec - slip_time_start->tv_usec) / 1000);
 }
 
 int getch()
@@ -227,34 +243,54 @@ usage(int exitcode, const char *format, ...)
   {
     if (format)
     {
-      fprintf(stderr, "%s: ",program_name);
+      fprintf(stderr, "ER:%s:",program_name);
 
       va_list arg;
       va_start(arg, format);
       vfprintf(stderr, format, arg);
       va_end(arg);
-
-      fprintf(stderr, "\n");
     }
-    fprintf (stderr, "Try `%s -h' for more information.\n", program_name);
+    else
+    {
+      fprintf (stderr, "ER:%s:Try -h for more information.\n", program_name);
+    }
     exit(exitcode);
   }
 
   fprintf(f, "%s version %s\n", program_name, VERSION);
 
-  fprintf(f, "Usage: %s [GOAL_ANGLE_DEGREE] [-i:l:t:dexn:s:b:h]\n", program_name);
-  fputs("Moter test tool\n", f);
+  fprintf(f, "Usage: %s [ANGLE_DEGREE] [-i:l:t:p:dexn:s:b:h]\n", program_name);
+  fputs("Moter Test Tool\n", f);
   fputs((
-"  GOAL_ANGLE_DEGREE : move position to GOAL_ANGLE_DEGREE with enable motor torque, -50.0~50.0\n"
-"  -i MOTOR_ID       : use motor ID to MOTOR_ID, 1~255, default=1\n"
-"  -l TORQUE_LIMIT   : set motor torque limit to TORQUE_LIMIT, 0~1023, default=200\n"
-"  -t GOAL_TIME_OUT  : time out value in seconds to move goal position, 1~100, default=1\n"
+"  ANGLE_DEGREE      : move position to ANGLE_DEGREE with enable motor torque\n"
+"                      can be -50.0~50.0\n"
+"  -i MOTOR_ID       : use motor ID to MOTOR_ID\n"
+"                      can be 1~255\n"
+"                      default="STR(MOTOR_ID_CONST)"\n"
+"  -l TORQUE_LIMIT   : set motor torque limit to TORQUE_LIMIT\n"
+"                      can be 0~1023\n"
+"                      default="STR(BAUD_RATE_CONST)"\n"
+"  -t GOAL_TIME_OUT  : time out value in seconds to move goal position\n"
+"                      can be 1~100\n"
+"                      default="STR(GOAL_TIME_OUT_CONST)"\n"
+"  -p SLIP_TIME_OUT  : time out value in seconds for motor slip\n"
+"                      can be 1~10\n"
+"                      default="STR(SLIP_TIME_OUT_CONST)"\n"
 "  -d                : disable moter torque\n"
 "  -e                : enable moter torque\n"
 "  -x                : disable display status\n"
-"  -n PORT_NAME      : set serial port name to PORT_NAME, default=/dev/ttyS4\n"
-"  -s PORT_SPEC      : set serial port spec to PORT_SPEC, 232,422,485, default=485\n"
-"  -b BAUD_RATE      : set serial baud rate to BAUD_RATE, default=57600\n"
+"  -n PORT_NAME      : set serial port name to PORT_NAME\n"
+"                      can be /dev/ttyUSB0 or etc on linux\n"
+"                      default="PORT_NAME_CONST_STR"\n"
+"  -s PORT_SPEC      : set serial port spec to PORT_SPEC\n"
+"                      can be 232 or 422 or 485\n"
+"                      default="STR(PORT_SPEC_CONST)"\n"
+"  -b BAUD_RATE      : set serial baud rate to BAUD_RATE\n"
+"                      can be 9600 or 19200 or 38400 or 57600 or 115200 or\n"
+"                       230400 or 460800 or 500000 or 576000 or 921600 or\n"
+"                       1000000 or 1152000 or 1500000 or 2000000 or 2500000 or\n"
+"                       3000000 or 3500000 or 4000000\n"
+"                      default="STR(BAUD_RATE_CONST)"\n"
 "  -h                : display usage\n"
     ), f);
   exit(exitcode);
@@ -282,12 +318,12 @@ int ping_id(int port_num)
   dxl_model_number = pingGetModelNum(port_num, PROTOCOL_VERSION, MOTOR_ID);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
     return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
     return -1;
   }
 
@@ -296,62 +332,60 @@ int ping_id(int port_num)
   return 0;
 }
 
-void set_goal_position(int port_num)
+int set_torque_limit(int port_num)
+{
+  int dxl_comm_result = COMM_TX_FAIL;             // Communication result
+  uint8_t dxl_error;                          // Dynamixel error
+
+  // Set Torque limit
+  write2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_LIMIT, TORQUE_LIMIT);
+  if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
+  {
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
+  }
+  else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
+  {
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
+
+  }
+  else
+  {
+    //printf("Dynamixel has been successfully connected \n");
+  }
+
+  return 0;
+}
+
+int set_goal_position(int port_num)
 {
   int dxl_comm_result = COMM_TX_FAIL;             // Communication result
   uint16_t dxl_goal_position = angle_degree_2_position(GOAL_ANGLE_DEGREE);  // Goal position
   uint8_t dxl_error;                          // Dynamixel error
   uint16_t dxl_present_position;              // Present position
   uint16_t dxl_present_position_prev;         // Present position
+  struct timeval goal_time_start;
+  struct timeval slip_time_start;
+  struct timeval time_cur;
 
   //printf("[ID:%03d] dxl_goal_position:%d\n", MOTOR_ID, dxl_goal_position);
-
-  // Set Torque limit
-  write2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_LIMIT, TORQUE_LIMIT);
-  if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
-  {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
-  }
-  else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
-  {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
-  }
-  else
-  {
-    //printf("Dynamixel has been successfully connected \n");
-  }
-
-  // Enable Dynamixel Torque
-  write1ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_ENABLE, TORQUE_ENABLE);
-  if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
-  {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
-  }
-  else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
-  {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
-  }
-  else
-  {
-    //printf("Dynamixel has been successfully connected \n");
-  }
-
-  //printf("Press any key to continue! (or press ESC to quit!)\n");
-  //if (getch() == ESC_ASCII_VALUE)
-  //  break;
 
   // Write goal position
   write2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_GOAL_POSITION, dxl_goal_position);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
   }
 
-  struct timeval time_start, time_end;
+  // start goal timer
+  gettimeofday(&goal_time_start, NULL);
 
   dxl_present_position_prev = 0xffff;
   do
@@ -360,41 +394,50 @@ void set_goal_position(int port_num)
     dxl_present_position = read2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_PRESENT_POSITION);
     if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
     {
-      printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+      printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+      return -1;
     }
     else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
     {
-      printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+      printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+      return -1;
     }
     //printf("ID:%d GP:%d:%02.1f PP:%d:%02.1f\n", MOTOR_ID, dxl_goal_position, position_2_angle_degree(dxl_goal_position), dxl_present_position, position_2_angle_degree(dxl_present_position));
     if (dxl_present_position_prev == 0xffff)
     {
-      // start timer
-      gettimeofday(&time_start, NULL);
+      // start slip timer
+      gettimeofday(&slip_time_start, NULL);
       dxl_present_position_prev = dxl_present_position;
     }
     else
     {
       if (abs(dxl_present_position - dxl_present_position_prev) > 1)
       {
-        gettimeofday(&time_start, NULL);
+        gettimeofday(&slip_time_start, NULL);
       }
       dxl_present_position_prev = dxl_present_position;
     }
-    // end timer
-    gettimeofday(&time_end, NULL);
-    if (((time_end.tv_sec - time_start.tv_sec) * 1000 + (time_end.tv_usec - time_start.tv_usec) / 1000) >= GOAL_TIME_OUT * 1000)
+    // current timer
+    gettimeofday(&time_cur, NULL);
+    // Check slip time out expired
+    if (get_timeofday_diff(&slip_time_start, &time_cur) >= SLIP_TIME_OUT * 1000)
+    {
+      break;
+    }
+    // Check goal time out expired
+    if (get_timeofday_diff(&goal_time_start, &time_cur) >= GOAL_TIME_OUT * 1000)
     {
       break;
     }
     usleep(100*1000); // sleep 100ms
   } while ((abs(dxl_goal_position - dxl_present_position) > DXL_MOVING_STATUS_THRESHOLD));
 
-  //printf("ID:%d TI:%ldms\n", MOTOR_ID, ((time_end.tv_sec - time_start.tv_sec) * 1000 + (time_end.tv_usec - time_start.tv_usec) / 1000));
+  //printf("ID:%d TI:%ldms\n", MOTOR_ID, ((slip_time_end.tv_sec - slip_time_start.tv_sec) * 1000 + (slip_time_end.tv_usec - slip_time_start.tv_usec) / 1000));
   //printf("ID:%d GP:%d:%02.1f PP:%d:%02.1f\n", MOTOR_ID, dxl_goal_position, position_2_angle_degree(dxl_goal_position), dxl_present_position, position_2_angle_degree(dxl_present_position));
+  return 0;
 }
 
-void set_enable_motor_torque(int port_num)
+int set_enable_motor_torque(int port_num)
 {
   int dxl_comm_result = COMM_TX_FAIL;             // Communication result
   uint8_t dxl_error = 0;                          // Dynamixel error
@@ -403,15 +446,19 @@ void set_enable_motor_torque(int port_num)
   write1ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_ENABLE, TORQUE_ENABLE);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
   }
+
+  return 0;
 }
 
-void set_disable_motor_torque(int port_num)
+int set_disable_motor_torque(int port_num)
 {
   int dxl_comm_result = COMM_TX_FAIL;             // Communication result
   uint8_t dxl_error = 0;                          // Dynamixel error
@@ -420,15 +467,19 @@ void set_disable_motor_torque(int port_num)
   write1ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_ENABLE, TORQUE_DISABLE);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
   }
+
+  return 0;
 }
 
-void show_status(int port_num)
+int show_status(int port_num)
 {
   int dxl_comm_result = COMM_TX_FAIL;             // Communication result
 
@@ -438,37 +489,51 @@ void show_status(int port_num)
   uint16_t torque_limit;
   uint8_t torque_enable;
 
-  // Read goal position
-  goal_position = read2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_GOAL_POSITION);
-  if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
+  if (enabled_goal_position)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    goal_position = angle_degree_2_position(GOAL_ANGLE_DEGREE);
   }
-  else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
+  else
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    // Read goal position
+    goal_position = read2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_GOAL_POSITION);
+    if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
+    {
+      printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+      return -1;
+    }
+    else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
+    {
+      printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+      return -1;
+    }
   }
 
   // Read present position
   present_position = read2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_PRESENT_POSITION);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
+
   }
 
   // Read Torque limit
   torque_limit = read2ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_LIMIT);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
   }
   //printf("[ID:%03d] Toque limit:%d\n", MOTOR_ID, torque_limit);
 
@@ -476,15 +541,19 @@ void show_status(int port_num)
   torque_enable = read1ByteTxRx(port_num, PROTOCOL_VERSION, MOTOR_ID, ADDR_MX_TORQUE_ENABLE);
   if ((dxl_comm_result = getLastTxRxResult(port_num, PROTOCOL_VERSION)) != COMM_SUCCESS)
   {
-    printf("%s\n", getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    printf("ID:%d TE:%d:%s\n", MOTOR_ID, dxl_comm_result, getTxRxResult(PROTOCOL_VERSION, dxl_comm_result));
+    return -1;
   }
   else if ((dxl_error = getLastRxPacketError(port_num, PROTOCOL_VERSION)) != 0)
   {
-    printf("%s\n", getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    printf("ID:%d RE:%d:%s\n", MOTOR_ID, dxl_error, getRxPacketError(PROTOCOL_VERSION, dxl_error));
+    return -1;
   }
   //printf("[ID:%03d] Toque enable:%d\n", MOTOR_ID, torque_enable);
 
   printf("ID:%d GP:%d:%.1f PP:%d:%.1f TL:%d TE:%d\n", MOTOR_ID, goal_position, position_2_angle_degree(goal_position), present_position, position_2_angle_degree(present_position), torque_limit, torque_enable);
+
+  return 0;
 }
 
 int main(int argc, char **argv)
@@ -513,8 +582,9 @@ int main(int argc, char **argv)
       return -1;
     }
     GOAL_ANGLE_DEGREE = fval;
-    enable_goal_position = true;
-    enable_motor_torque = true;
+    enabled_goal_position = true;
+    enabled_motor_torque = true;
+    enabled_torque_limit = true;
     //printf("GOAL_ANGLE_DEGREE:%f\n", GOAL_ANGLE_DEGREE);
     if (argc > 2)
     {
@@ -528,7 +598,7 @@ int main(int argc, char **argv)
 
   if (skip_getopt == false)
   {
-    while ((c = getopt (argc, argv, "i:l:t:dexn:s:b:h")) != -1)
+    while ((c = getopt (argc, argv, "i:l:t:p:dexn:s:b:h")) != -1)
     {
       switch (c)
       {
@@ -536,12 +606,12 @@ int main(int argc, char **argv)
           if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
           {
             usage(-1, "incorrct argument of option -%c.\n", optopt);
-            break;
+            return -1;
           }
           if (ival < 1 || ival > 255)
           {
             usage(-1, "MOTOR_ID must be 1~255.\n");
-            break;
+            return -1;
           }
           MOTOR_ID = (uint8_t)ival;
           break;
@@ -549,38 +619,52 @@ int main(int argc, char **argv)
           if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
           {
             usage(-1, "incorrct argument of option -%c.\n", optopt);
-            break;
+            return -1;
           }
           if (ival < 0 || ival > 1023)
           {
             usage(-1, "TORQUE_LIMIT must be 0~1023.\n");
-            break;
+            return -1;
           }
           TORQUE_LIMIT = (uint16_t)ival;
+          enabled_torque_limit = true;
           break;
         case 't':
           if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
           {
             usage(-1, "incorrct argument of option -%c.\n", optopt);
-            break;
+            return -1;
           }
           if (ival < 1 || ival > 100)
           {
             usage(-1, "GOAL_TIME_OUT must be 1~100.\n");
-            break;
+            return -1;
           }
           GOAL_TIME_OUT = ival;
           break;
+        case 'p':
+          if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
+          {
+            usage(-1, "incorrct argument of option -%c.\n", optopt);
+            return -1;
+          }
+          if (ival < 1 || ival > 10)
+          {
+            usage(-1, "GOAL_TIME_OUT must be 1~10.\n");
+            return -1;
+          }
+          SLIP_TIME_OUT = ival;
+          break;
         case 'd':
-          disable_motor_torque = true;
-          enable_motor_torque = false;
+          disabled_motor_torque = true;
+          enabled_motor_torque = false;
           break;
         case 'e':
-          enable_motor_torque = true;
-          disable_motor_torque = false;
+          enabled_motor_torque = true;
+          disabled_motor_torque = false;
           break;
         case 'x':
-          disable_display_status = true;
+          disabled_display_status = true;
           break;
         case 'n':
           PORT_NAME = optarg;
@@ -589,12 +673,12 @@ int main(int argc, char **argv)
           if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
           {
             usage(-1, "incorrct argument of option -%c.\n", optopt);
-            break;
+            return -1;
           }
           if (ival != 232 && ival != 422 && ival != 485)
           {
             usage(-1, "PORT_SPEC must be 232, 422 or 485.\n");
-            break;
+            return -1;
           }
           PORT_SPEC = ival;
           break;
@@ -602,22 +686,38 @@ int main(int argc, char **argv)
           if (str2int(&ival, optarg, 10) != STR2INT_SUCCESS)
           {
             usage(-1, "incorrct argument of option -%c.\n", optopt);
-            break;
+            return -1;
           }
           switch (ival)
           {
+            case 9600:
+            case 19200:
+            case 38400:
             case 57600:
             case 115200:
+            case 230400:
+            case 460800:
+            case 500000:
+            case 576000:
+            case 921600:
+            case 1000000:
+            case 1152000:
+            case 1500000:
+            case 2000000:
+            case 2500000:
+            case 3000000:
+            case 3500000:
+            case 4000000:
               break;
             default:
-              usage(-1, "BAUD_RATE must be 57600, 115200.\n");
-              break;
+              usage(-1, "BAUD_RATE must be ... or 57600 or many.\n");
+              return -1;
           }
           BAUD_RATE = ival;
           break;
         case 'h':
           usage(0, NULL);
-          break;
+          return -1;
         case '?':
           switch (optopt)
           {
@@ -625,21 +725,28 @@ int main(int argc, char **argv)
             case 'n':
             case 'b':
               usage(-1, NULL);
-              break;
+              return -1;
           }
           if (isprint (optopt))
+          {
             usage(-1, NULL);
+            return -1;
+          }
           else
+          {
             usage(-1, "Unknown option character `\\x%x'.\n", optopt);
-          return -1;
+            return -1;
+          }
         default:
           abort ();
+          return -1;
       }
     }
 
     for (index = optind; index < argc; index++)
     {
-      printf ("Non-option argument %s\n", argv[index]);
+      usage(-1, "Non-option argument %s\n", argv[index]);
+      return -1;
     }
   }
 
@@ -669,22 +776,38 @@ int main(int argc, char **argv)
 
   if (ping_id(port_num) == 0)
   {
-    if (enable_goal_position)
+    if (enabled_torque_limit)
     {
-      set_goal_position(port_num);
-      enable_motor_torque = false; // Already enabled.
+      if (set_torque_limit(port_num) != 0)
+        goto exit;
     }
 
-    if (enable_motor_torque)
-      set_enable_motor_torque(port_num);
+    if (enabled_motor_torque)
+    {
+      if (set_enable_motor_torque(port_num) != 0)
+        goto exit;
+    }
 
-    if (disable_motor_torque)
-      set_disable_motor_torque(port_num);
+    if (enabled_goal_position)
+    {
+      if (set_goal_position(port_num) != 0)
+        goto exit;
+    }
 
-    if (!disable_display_status)
-      show_status(port_num);
+    if (disabled_motor_torque)
+    {
+      if (set_disable_motor_torque(port_num) != 0)
+        goto exit;
+    }
+
+    if (!disabled_display_status)
+    {
+      if (show_status(port_num) != 0)
+        goto exit;
+    }
   }
 
+exit:
   // Close port
   closePort(port_num);
 
