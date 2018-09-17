@@ -37,6 +37,7 @@ CXFLAGS     = -O2 -O3 -DLINUX -D_GNU_SOURCE -Wall $(INCLUDES) -g
 LNKCC       = $(CX)
 #LNKFLAGS    = $(CXFLAGS) #-Wl,-rpath,$(DIR_THOR)/lib
 LNKFLAGS    = --static -L../../../../build/linux_arm_eddy
+STRIP       = arm-linux-strip
 
 #---------------------------------------------------------------------
 # Core components (all of these are likely going to be needed)
@@ -60,6 +61,7 @@ OBJECTS  = $(addsuffix .o,$(addprefix $(DIR_OBJS)/,$(basename $(notdir $(SOURCES
 #---------------------------------------------------------------------
 $(TARGET): make_directory $(OBJECTS)
 	$(LNKCC) $(LNKFLAGS) $(OBJECTS) -o $(TARGET) $(LIBRARIES)
+	$(STRIP) $(TARGET)
 
 all: $(TARGET)
 
