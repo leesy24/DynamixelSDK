@@ -258,6 +258,16 @@ uint8_t setupPortLinux(int port_num, int cflag_baud)
   tcsetattr(portData[port_num].socket_fd, TCSANOW, &newtio);
 
   portData[port_num].tx_time_per_byte = (1000.0 / (double)portData[port_num].baudrate) * 10.0;
+
+  #define INTERFACESEL    0x5504    // Eddy Serial interface select (232,422,485)
+  #define SB_RS232            0
+  #define SB_RS422_PTOP       1
+  #define SB_RS422_MULTIDROP  2
+  #define SB_RS485_NONE_ECHO  3
+  #define SB_RS485_ECHO       5
+  int interface = SB_RS485_NONE_ECHO;
+  ioctl(portData[port_num].socket_fd, INTERFACESEL, &interface);
+
   return True;
 }
 
